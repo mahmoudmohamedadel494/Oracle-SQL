@@ -1,0 +1,163 @@
+-- 1- craete new user and grant dba privalges to this user 
+
+
+SQL*Plus: Release 11.2.0.2.0 Production on Fri Sep 2 16:22:17 2022
+
+Copyright (c) 1982, 2010, Oracle.  All rights reserved.
+
+SQL> conn sys/8679 as sysdba
+Connected.
+
+SQL> create user pro_user identified by 123 ;
+
+User created.
+
+SQL> grant dba to pro_user ;
+
+Grant succeeded.
+
+SQL>
+-----------------------------------------------------------------------------------------------------------------
+
+-- 2- creating the 3 tables and filling done using TOAD
+
+-----------------------------------------------------------------------------------------------------------------
+-- 3- updating PAYMENT_INSTALLMENTS_NO column in CONTRACTS table using procedure and calling the procedure using cursor
+
+------------- procdure
+create or replace procedure update_installments_no(v_CONTRATCT_ID number )
+is
+v_CONTACT_STARTDATE date ; 
+v_CONTRACT_ENDDATE date ; 
+v_CONTRACT_PAYMENT_TYPE varchar2(100) ; 
+begin
+
+    select CONTACT_STARTDATE , CONTRACT_ENDDATE , CONTRACT_PAYMENT_TYPE
+        into v_CONTACT_STARTDATE , v_CONTRACT_ENDDATE , v_CONTRACT_PAYMENT_TYPE
+    from contracts where CONTRATCT_ID = v_CONTRATCT_ID ; 
+    
+    if v_CONTRACT_PAYMENT_TYPE = 'ANNUAL' then
+        update contracts
+        set PAYMENT_INSTALLMENTS_NO = months_between(to_date(CONTRACT_ENDDATE) , to_date(CONTACT_STARTDATE) )/12 
+        where CONTRATCT_ID = v_CONTRATCT_ID ; 
+        
+    elsif v_CONTRACT_PAYMENT_TYPE = 'HALF_ANNUAL' then
+        update contracts
+        set PAYMENT_INSTALLMENTS_NO = months_between(to_date(CONTRACT_ENDDATE) , to_date(CONTACT_STARTDATE) )/6 
+        where CONTRATCT_ID = v_CONTRATCT_ID ;     
+        
+    elsif v_CONTRACT_PAYMENT_TYPE = 'QUARTER' then
+        update contracts
+        set PAYMENT_INSTALLMENTS_NO = months_between(to_date(CONTRACT_ENDDATE) , to_date(CONTACT_STARTDATE) )/3 
+        where CONTRATCT_ID = v_CONTRATCT_ID ; 
+    else 
+        update contracts
+        set PAYMENT_INSTALLMENTS_NO = months_between(to_date(CONTRACT_ENDDATE) , to_date(CONTACT_STARTDATE) )
+        where CONTRATCT_ID = v_CONTRATCT_ID ;     
+   end if ; 
+end ; 
+
+show errors ; 
+
+------------- calling
+
+set serveroutput on size 1000000
+declare
+    cursor update_installments_no is 
+    select * from contracts order by  CONTRATCT_ID  ; 
+begin
+
+    for data_record in update_installments_no loop
+        update_installments_no(data_record.CONTRATCT_ID) ; 
+    end loop ; 
+
+end ; 
+
+show errors ; 
+-----------------------------------------------------------------------------------------------------------------
+-- 4- inserting Installemnts table 
+
+-------------  create sequence 
+
+ create sequence INSTALLMENT_SEQ
+        start with 1
+        increment by 1
+        maxvalue 9999999999999
+        minvalue -1;
+
+
+------------- create procedure 
+
+create or replace procedure insert_installments_table (v_CONTRATCT_ID number )
+is 
+v_CONTACT_STARTDATE date ; 
+v_CONTRACT_ENDDATE date ; 
+v_PAYMENT_INSTALLMENTS_NO number (10,2) ;
+v_CONTRACT_TOTAL_FEES number (10,2) ; 
+v_CONTRACT_PAYMENT_TYPE varchar2(100) ; 
+v_CONTRACT_DEPOSIT_FEES number (10,2) ; 
+v_total_remain number (10,2) ; 
+v_INSTALLMENT_AMOUNT number (10,2) ; 
+v_INSTALLMENT_DATE date ; 
+begin 
+    
+    select    CONTACT_STARTDATE , CONTRACT_ENDDATE , PAYMENT_INSTALLMENTS_NO ,
+    CONTRACT_TOTAL_FEES , CONTRACT_PAYMENT_TYPE  , nvl(CONTRACT_DEPOSIT_FEES , 0)
+    into     v_CONTACT_STARTDATE , v_CONTRACT_ENDDATE , v_PAYMENT_INSTALLMENTS_NO , v_CONTRACT_TOTAL_FEES , v_CONTRACT_PAYMENT_TYPE , v_CONTRACT_DEPOSIT_FEES
+    from contracts where CONTRATCT_ID = v_CONTRATCT_ID ; 
+
+    v_total_remain :=  v_CONTRACT_TOTAL_FEES - v_CONTRACT_DEPOSIT_FEES ; 
+    v_INSTALLMENT_AMOUNT := v_total_remain / v_PAYMENT_INSTALLMENTS_NO ; 
+    v_INSTALLMENT_DATE := v_CONTACT_STARTDATE ; 
+    for i in 1..v_PAYMENT_INSTALLMENTS_NO loop
+
+           if   v_CONTRACT_PAYMENT_TYPE = 'ANNUAL' then
+                insert into INSTALLMENTS
+                (INSTALLMENT_ID, CONTRACT_ID, INSTALLMENT_DATE, INSTALLMENT_AMOUNT, PAID)
+                values
+                (INSTALLMENT_SEQ.nextval, v_CONTRATCT_ID, ADD_MONTHS (to_date (v_INSTALLMENT_DATE , 'DD/MM/YYYY') , 12) , v_INSTALLMENT_AMOUNT , 0 )    ;
+                v_INSTALLMENT_DATE := ADD_MONTHS (to_date (v_INSTALLMENT_DATE , 'DD/MM/YYYY') , 12)  ; 
+            
+               elsif v_CONTRACT_PAYMENT_TYPE = 'HALF_ANNUAL' then
+                 insert into INSTALLMENTS
+                (INSTALLMENT_ID, CONTRACT_ID, INSTALLMENT_DATE, INSTALLMENT_AMOUNT, PAID)
+                values
+                (INSTALLMENT_SEQ.nextval, v_CONTRATCT_ID, ADD_MONTHS (to_date (v_INSTALLMENT_DATE , 'DD/MM/YYYY') ,6) , v_INSTALLMENT_AMOUNT , 0 )   ;
+                v_INSTALLMENT_DATE := ADD_MONTHS (to_date (v_INSTALLMENT_DATE , 'DD/MM/YYYY') , 6)  ;     
+                
+            elsif v_CONTRACT_PAYMENT_TYPE = 'QUARTER' then
+                 insert into INSTALLMENTS
+                (INSTALLMENT_ID, CONTRACT_ID, INSTALLMENT_DATE, INSTALLMENT_AMOUNT, PAID)
+                values
+                (INSTALLMENT_SEQ.nextval, v_CONTRATCT_ID, ADD_MONTHS (to_date (v_INSTALLMENT_DATE , 'DD/MM/YYYY') ,3) , v_INSTALLMENT_AMOUNT , 0 );    
+                v_INSTALLMENT_DATE := ADD_MONTHS (to_date (v_INSTALLMENT_DATE , 'DD/MM/YYYY') , 3)  ;     
+            else 
+                 insert into INSTALLMENTS
+                (INSTALLMENT_ID, CONTRACT_ID, INSTALLMENT_DATE, INSTALLMENT_AMOUNT, PAID)
+                values
+                (INSTALLMENT_SEQ.nextval, v_CONTRATCT_ID, ADD_MONTHS (to_date (v_INSTALLMENT_DATE , 'DD/MM/YYYY') ,1) , v_INSTALLMENT_AMOUNT , 0 );    
+                v_INSTALLMENT_DATE := ADD_MONTHS (to_date (v_INSTALLMENT_DATE , 'DD/MM/YYYY') ,1)  ;       
+                
+            end if ;   
+            
+      end loop ;    
+      
+end ;
+
+
+------------- calling insert_installments_table  procedure
+
+set serveroutput on size 1000000
+declare
+    cursor insert_installments_cursor is 
+    select * from contracts order by  CONTRATCT_ID  ; 
+begin
+
+    for data_record in insert_installments_cursor loop
+        insert_installments_table(data_record.CONTRATCT_ID) ; 
+    end loop ; 
+
+end ; 
+
+show errors ; 
+
